@@ -1,0 +1,123 @@
+import numpy as np
+import numba
+import matplotlib.pyplot as plt
+import math
+from scipy import special
+
+## Function to generate an Ornstein-Uhlenbeck   
+@numba.njit()
+def OUProcess(v,dt,rho,D,xi_c,xi_j):
+  return v + (-v*dt) + np.sqrt(2*D*dt*rho)*xi_c + np.sqrt(2*D*dt*(1-rho))*xi_j
+
+## Excitability curve function 
+@numba.njit()
+def f(u,beta,h):
+  '''
+  u -> membrane potential 
+  beta -> excitability slope
+  h -> excitability threshold
+  '''
+  return 0.5*(1+math.erf(beta*(u-h)))
+
+## Excitability slope IP function
+@numba.njit()
+def dbeta_dt(v,beta,h,epsilon_beta,ro,dt):
+  '''
+  v -> membrane potential 
+  beta -> excitability slope
+  h -> excitability threshold
+  epsilon_beta -> learning rate
+  ro -> target firing rate
+  dt -> time step
+  '''
+  fv = f(v,beta,h)
+  return beta + dt*(epsilon_beta*(fv-ro))
+
+## Excitability threshold IP function
+@numba.njit()
+def dh_dt(v,beta,h,epsilon_h,ro,dt):
+  '''
+  v -> membrane potential 
+  beta -> excitability slope
+  h -> excitability threshold
+  epsilon_h -> learning rate
+  ro -> target firing rate
+  dt -> time step
+  '''
+  fv = f(v,beta,h)
+  return h + dt*(epsilon_h*(fv-ro))
+
+## Calculate derivative of excitability curve
+@numba.njit()
+def deriv_f(beta,u,h):
+  '''
+  u -> membrane potential 
+  beta -> excitability slope
+  h -> excitability threshold
+  '''
+  return (beta/np.sqrt(np.pi))*np.exp(-beta**2*(u-h)**2)
+
+## Degeneracy curve (calculate h(beta) at steady state)  
+def degen(mu,var,beta,ro=.1):
+  '''
+  mu -> mean membrane potential 
+  var -> membrane potential variance 
+  beta -> excitability slope
+  ro -> target firing rate
+  '''
+  return mu - (1/beta)*(np.sqrt(1+2*beta**2*var)*special.erfinv(2*ro-1))
+
+## Calculate Hellinger distance between (the derivatives of) two excitability curves
+@numba.njit()
+def Hellinger(mu1,mu2,var1,var2):
+  s1 = np.sqrt(var1)
+  s2 = np.sqrt(var2)
+  return 1- np.sqrt((2*s1*s2)/(var1+var2))*np.exp(-.25*((mu1-mu2)**2/(var1+var2)))
+
+
+@numba.njit()
+def net_sim(alpha,T,N,W,beta_o,h_o,plast,dt,epsilon_beta,epsilon_h,ro=.1,hmax=.4,betamax=50):
+  '''
+  alpha = any additional stimulus to be added (e.g. spike trains, noise, fixed current, etc) -> matrix (N x len(t)) 
+  T = total simulation time
+  N = number of neurons in network
+  W = weight matrix
+  beta_o, h_o = initial value of beta and h 
+  plast = if intrinsic plasticity is on or off -> True/False vector of len(t) 
+  dt = time step
+  epsilon_beta, epsilon_h = learning rates for beta and h 
+  ro = target firing rate
+  hmax, betamax = boundary conditions for parameters
+  '''
+  time = np.arange(0, T, dt)
+  v, X = np.zeros((N,len(time))), np.zeros((N,len(time)))
+  beta, h = np.zeros((N,len(time))), np.zeros((N,len(time)))
+  ## Initialize beta, h, and v for all neurons
+  beta[:,0], h[:,0] = beta_o, h_o 
+  v[:,0] = np.random.uniform(0,.1,size=(N))
+  eps_h, eps_beta = np.zeros((N,len(time))), np.zeros((N,len(time)))
+  eps_h.fill(epsilon_h)
+  eps_beta.fill(epsilon_beta)
+  for t in range(0, len(time)-1):
+    wij = np.sum((W/N)*X[:,t],axis=1) 
+    for j in range(N):
+      v[j,t+1] = v[j,t]+dt*(-v[j,t]+wij[j]+alpha[j,t])
+      prob = np.random.uniform(0,1)
+      if (prob<(1-np.exp(-f(v[j,t+1],beta[j,t],h[j,t])*dt))):
+        X[j,t+1] =1/dt
+      else:
+        X[j,t+1]=0
+      if plast[t+1] == True:
+        beta[j,t+1] = dbeta_dt(v[j,t+1],beta[j,t],h[j,t],eps_beta[j,t+1],ro,dt)
+        if (beta[j,t+1]<0): ## force beta > 0 
+          beta[j,t+1] = 0.1
+        if (beta[j,t+1] > betamax): ## upper bound on beta 
+          beta[j,t+1] = beta[j,t]
+        h[j,t+1] = dh_dt(v[j,t+1],beta[j,t+1],h[j,t],eps_h[j,t+1],ro,dt)
+        if (h[j,t+1] > hmax): ## upper bound on h 
+          h[j,t+1] = h[j,t]
+      else: ## if plasticity is off, keep beta and h constant 
+        beta[j,t+1] = beta[j,t]
+        h[j,t+1] = h[j,t]
+
+  return v, beta, h, X
