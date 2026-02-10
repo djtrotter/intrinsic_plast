@@ -1,0 +1,192 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import math
+from scipy import special
+from cycler import cycler
+from scipy.stats import sem as sem
+from matplotlib.gridspec import GridSpec
+
+
+def plot_excitabilities(hs,bs):
+  fig,ax = plt.subplots(figsize=(5,5))
+  act = np.arange(-.5,.75,.01) ## range of input 
+  for i in range(len(hs)):
+    for k in range(len(bs)):
+      fa1 = np.zeros(len(act))
+      for j in range(len(act)):
+        fa1[j] = f(act[j],bs[k],hs[i])
+      ax.plot(act,.21*fa1,color=plt.cm.viridis([i/len(hs)]))
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.set_ylabel(r"$f(u,\beta,h)$",fontsize=14)
+    ax.set_xlabel(r"$u$",fontsize=14)
+    ax.tick_params(which='both',labelsize=13)
+  plt.show()
+
+def fig2_layout(beta, h, X):
+  fig = plt.figure(figsize=(14,16))
+  gs = GridSpec(6,4,figure = fig)
+
+  ## Excitability curves (mid time)
+  ax1 = fig.add_subplot(gs[4,0])
+  ax2 = fig.add_subplot(gs[4,1])
+  ax3 = fig.add_subplot(gs[4,2])
+
+  ## Excitability curves (end sim)
+  ax4 = fig.add_subplot(gs[5,0])
+  ax5 = fig.add_subplot(gs[5,1])
+  ax6 = fig.add_subplot(gs[5,2])
+
+  ax7 = fig.add_subplot(gs[:2,:]) ## Reduced raster
+  ax8 = fig.add_subplot(gs[2,:]) ## Rate
+  ax9 = fig.add_subplot(gs[3,:]) ## Hellinger
+
+  ax10 = fig.add_subplot(gs[4,3]) ## Beta v time
+  ax11 = fig.add_subplot(gs[5,3]) ## h v time
+  
+  act = np.arange(-.1,.9,.01)
+  col_inds = np.array([.05,.5,.95])
+  for cond in range(3):
+    if cond == 0:
+      _ax = ax1
+      _ax_ = ax4
+    if cond == 1:
+      _ax = ax2
+      _ax_ = ax5
+    if cond == 2:
+      _ax = ax3
+      _ax_ = ax6
+    h_sor, b_sor = [],[]
+    h_sor2, b_sor2 = [],[]
+    for i in range(N):
+      h_sor.append(h[cond,i,199000])
+      b_sor.append(beta[cond,i,199000])
+      h_sor2.append(h[cond,i,-1])
+      b_sor2.append(beta[cond,i,-1])
+    h_sor, h_sor2 = np.asarray(h_sor), np.asarray(h_sor2)
+    for i in range(len(h_sor)):
+      fa = np.zeros(len(act))
+      for j in range(len(act)):
+        fa[j] = f(act[j],b_sor[i],h_sor[i])
+      _ax.plot(act,.21*fa,color=plt.cm.coolwarm([col_inds[cond]]),alpha=.3)
+
+    for i in range(len(h_sor2)):
+      fa2 = np.zeros(len(act))
+      for j in range(len(act)):
+        fa2[j] = f(act[j],b_sor2[i],h_sor2[i])
+      _ax_.plot(act,.21*fa2,color=plt.cm.coolwarm([col_inds[cond]]),alpha=.3)
+    fa2 = np.zeros(len(act))
+    for j in range(len(act)):
+      fa[j] = f(act[j],np.mean(beta[cond,:,199000]),np.mean(h[cond,:,199000]))
+      fa2[j] = f(act[j],np.mean(beta[cond,:,-1]),np.mean(h[cond,:,-1]))
+    _ax.plot(act,.21*fa,color='xkcd:black',lw=2)
+    _ax_.plot(act,.21*fa2,color='xkcd:black',lw=2)
+    
+  for _ax in [ax1,ax2,ax3,ax4,ax5,ax6]:
+    _ax.set_xlabel("u",fontsize=15)
+  ax1.set_ylabel("f(u)",fontsize=15)
+  ax4.set_ylabel("f(u)",fontsize=15)
+
+  range_t = t
+  n = 75 
+  i, q2 = 0,0
+  while i < n:
+    if i < 25:
+      spike_train = X[2]
+      j = np.random.randint(0,N)
+      if spike_train[j, :].sum() > 0.:
+        t_sp = range_t[spike_train[j, :] > 0.5]  # spike times
+        ax7.plot(t_sp, q2 * np.ones(len(t_sp)), '|', ms=2, markeredgewidth=.5, color=plt.cm.coolwarm([col_inds[2]]))
+        q2 += 2
+    if i >= 25 and i < 50:
+      spike_train = X[1]
+      j = np.random.randint(0,N)
+      if spike_train[j, :].sum() > 0.:
+        t_sp = range_t[spike_train[j, :] > 0.5]  # spike times
+        ax7.plot(t_sp, q2 * np.ones(len(t_sp)), '|', ms=2, markeredgewidth=.5, color=plt.cm.coolwarm([col_inds[1]]))
+        q2 += 2
+    if i >= 50:
+      spike_train = X[0]
+      j = np.random.randint(0,N)
+      if spike_train[j, :].sum() > 0.:
+        t_sp = range_t[spike_train[j, :] > 0.5]  # spike times
+        ax7.plot(t_sp, q2 * np.ones(len(t_sp)), '|', ms=2, markeredgewidth=.5, color=plt.cm.coolwarm([col_inds[0]]))
+        q2 += 2
+    i += 1
+  ax7.set_xlim(4500,30500)
+  ax7.set_ylabel("Neuron ID",fontsize=15)
+  ax7.plot([10000,20000],[155,155],'k-',lw=3)
+
+  inds_r = np.linspace(50000,300000-1,60)
+  tplot_r = np.zeros(len(inds_r))
+  for i in range(len(inds_r)):
+    tplot_r[i] = t[int(inds_r[i])]
+
+  for cond in range(3):
+    rcalc = np.zeros((len(inds_r)-1,N))
+    for i in range(len(inds_r)-1):
+      for k in range(N):
+        if beta[cond][k][-1] > .2:
+          spks = 0
+          for j in np.arange(inds_r[i],inds_r[i+1],1):
+            j = int(j)
+            if X[cond][k][j] > 0:
+              spks += 1
+          rcalc[i,k] = (spks/(inds_r[i+1]-inds_r[i]))*(1000/N)
+    ax8.plot(tplot_r[:-1],np.mean(rcalc,axis=1),color=plt.cm.coolwarm([col_inds[cond]]))
+    ax8.fill_between(tplot_r[:-1],np.mean(rcalc,axis=1),np.mean(rcalc,axis=1)+sem(rcalc,axis=1),alpha=.2,color=plt.cm.coolwarm([col_inds[cond]]))
+    ax8.fill_between(tplot_r[:-1],np.mean(rcalc,axis=1),np.mean(rcalc,axis=1)-sem(rcalc,axis=1),alpha=.2,color=plt.cm.coolwarm([col_inds[cond]]))
+    ax8.plot([10000,20000],[.27,.27],'k-',lw=3)
+
+    inds = np.linspace(50000,300000-1,40)
+    helcalc1 = np.zeros((len(inds),N,N))
+    s1 = 0
+    for s in inds:
+      s = int(s)
+      s2 = 0
+      for i in range(N):
+        s3 = 0
+        for j in range(N):
+          helcalc1[s1,s2,s3] = Hellinger(h[cond][i][s],h[cond][j][s],1/(2*beta[cond][i][s]**2),1/(2*beta[cond][j][s]**2))
+          s3 += 1
+        s2 += 1
+      s1 +=1
+
+    tplot = np.zeros(len(inds))
+    for i in range(len(inds)):
+      tplot[i] = t[int(inds[i])]
+
+    ax9.errorbar(tplot,np.nanmean(np.nanmean(helcalc1,axis=2),axis=1),color=plt.cm.coolwarm([col_inds[cond]]),lw=2)
+    ax9.fill_between(tplot,np.nanmean(np.nanmean(helcalc1,axis=2),axis=1),np.nanmean(np.nanmean(helcalc1,axis=2),axis=1)+sem(np.nanmean(helcalc1,axis=2),axis=1),color=plt.cm.coolwarm([col_inds[cond]]),alpha=.2)
+    ax9.fill_between(tplot,np.nanmean(np.nanmean(helcalc1,axis=2),axis=1),np.nanmean(np.nanmean(helcalc1,axis=2),axis=1)-sem(np.nanmean(helcalc1,axis=2),axis=1),color=plt.cm.coolwarm([col_inds[cond]]),alpha=.2)
+    ax9.plot([10000,20000],[.6,.6],'k-',lw=3)
+  ax8.plot([5000,30000],[.05,.05],'k:')
+  ax8.set_ylabel(r"$\langle r \rangle$",fontsize=15)
+  ax8.set_xlabel("Time",fontsize=15)
+
+  ax9.set_xlabel("Time",fontsize=15)
+  ax9.set_ylabel(r"$\langle H^2 \rangle$",fontsize=15)
+  ax9.set_ylim(0,.7)
+
+  ax10.errorbar([0,1,2],[np.mean(beta[0,:,90000]),np.mean(beta[0,:,199000]),np.mean(beta[0,:,-1])],yerr=[sem(beta[0,:,90000]),sem(beta[0,:,199000]),sem(beta[0,:,-1])],color=plt.cm.coolwarm([col_inds[0]]))
+  ax10.errorbar([0,1,2],[np.mean(beta[1,:,90000]),np.mean(beta[1,:,199000]),np.mean(beta[1,:,-1])],yerr=[sem(beta[1,:,90000]),sem(beta[1,:,199000]),sem(beta[1,:,-1])],color=plt.cm.coolwarm([col_inds[1]]))
+  ax10.errorbar([0,1,2],[np.mean(beta[2,:,90000]),np.mean(beta[2,:,199000]),np.mean(beta[2,:,-1])],yerr=[sem(beta[2,:,90000]),sem(beta[2,:,199000]),sem(beta[2,:,-1])],color=plt.cm.coolwarm([col_inds[2]]))
+  ax10.set_xlabel("Time",fontsize=15)
+  ax10.set_ylabel(r"$\beta$",fontsize=15)
+  ax10.set_xticks([0,1,2],['9000','19900','30000'])
+
+  ax11.errorbar([0,1,2],[np.mean(h[0,:,90000]),np.mean(h[0,:,199000]),np.mean(h[0,:,-1])],yerr=[sem(h[0,:,90000]),sem(h[0,:,199000]),sem(h[0,:,-1])],color=plt.cm.coolwarm([col_inds[0]]))
+  ax11.errorbar([0,1,2],[np.mean(h[1,:,90000]),np.mean(h[1,:,199000]),np.mean(h[1,:,-1])],yerr=[sem(h[1,:,90000]),sem(h[1,:,199000]),sem(h[1,:,-1])],color=plt.cm.coolwarm([col_inds[1]]))
+  ax11.errorbar([0,1,2],[np.mean(h[2,:,90000]),np.mean(h[2,:,199000]),np.mean(h[2,:,-1])],yerr=[sem(h[2,:,90000]),sem(h[2,:,199000]),sem(h[2,:,-1])],color=plt.cm.coolwarm([col_inds[2]]))
+  ax11.set_xlabel("Time",fontsize=15)
+  ax11.set_ylabel(r"$h$",fontsize=15)
+  ax11.set_xticks([0,1,2],['9000','19900','30000'])
+
+  for _ax in [ax2,ax3,ax5,ax6]:
+    _ax.set_yticks([])
+
+  for _ax in [ax1,ax2,ax3,ax4,ax5,ax6,ax7,ax8,ax9,ax10,ax11]:
+    _ax.tick_params(which='both',labelsize=14)
+    _ax.spines['top'].set_visible(False)
+    _ax.spines['right'].set_visible(False)
+  plt.show()
